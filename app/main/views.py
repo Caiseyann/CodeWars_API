@@ -33,12 +33,14 @@ def index():
 @main.route('/user/<uname>')
 def profile(uname):
     user = User.query.filter_by(username = uname).first()
-    blogs = Blog.query.filter_by(user_id = user.id).order_by(Blog.posted.desc())
+    posts_count = Post.count_posts(uname)
+    user_joined = user.date_joined.strftime('%b %d, %Y')
 
     if user is None:
         abort(404)
 
-    return render_template("profile/profile.html", user = user, blogs = blogs)
+    return render_template("profile/profile.html", user = user,posts = posts_count,date = user_joined)
+
 
 @main.route('/user/<uname>/update',methods = ['GET','POST'])
 @login_required
@@ -57,7 +59,8 @@ def update_profile(uname):
 
         return redirect(url_for('.profile',uname=user.username))
 
-    return render_template('profile/update.html',form =form,user=user)       
+    return render_template('profile/update.html',form = form)
+
 
 @main.route('/user/<uname>/update/pic',methods= ['POST'])
 @login_required
@@ -70,61 +73,91 @@ def update_pic(uname):
         db.session.commit()
     return redirect(url_for('main.profile',uname=uname))
 
-@main.route('/user/<uname>/blog',methods= ['GET','POST'])
+
+
+@main.route('/post/new', methods = ['GET','POST'])
 @login_required
-def new_blog(uname):
-    user = User.query.filter_by(username = uname).first()
-    if user is None:
-        abort(404)
+def new_post():
+    post_form = PostForm()
+    if post_form.validate_on_submit():
+        title = post_form.title.data
+        post = post_form.text.data
+        category = post_form.category.data
 
-    form = BlogForm()
-    blog = Blog()
+        # Updated post instance
+        new_post = Post(post_title=title,post_content=post,category=category,user=current_user,likes=0,dislikes=0)
 
-    if form.validate_on_submit():
-        blog.title = form.title.data
-        blog.message = form.message.data
-        blog.user_id = current_user.id
+        # Save post method
+        new_post.save_post()
+        return redirect(url_for('.home'))
+
+    title = 'New post'
+    return render_template('new_post.html',title = title,post_form=post_form )
 
 
-        db.session.add(blog)
+@main.route('/posts/fashion_posts')
+def leaderboard_climbers():
+
+    posts = Post.get_posts('leaderboard_climbers')
+
+    return render_template("lc_posts.html", posts = posts)
+
+@main.route('/post/lifestyle_posts')
+def highest_and_lowest():
+
+    posts = Post.get_posts('highest_and_lowest')
+
+    return render_template("hal_posts.html", posts = posts)
+
+@main.route('/posts/travel_posts')
+def two_oldest_ages():
+
+    posts = Post.get_posts('two_oldest_ages')
+
+    return render_template("toa_posts.html", posts = posts)
+
+
+
+
+@main.route('/post/<int:id>', methods = ['GET','POST'])
+def post(id):
+    post = Post.get_post(id)
+    posted_date = post.posted.strftime('%b %d, %Y')
+
+    if request.args.get("like"):
+        post.likes = post.likes + 1
+
+        db.session.add(post)
         db.session.commit()
 
-        members = Member.query.all()
-        for member in members:
-            mail_message("New Blog Post", "email/new_blog", member.email, member = member)
+        return redirect("/post/{post_id}".format(post_id=post.id))
 
-        return redirect(url_for('main.profile',uname=user.username))
+    elif request.args.get("dislike"):
+        post.dislikes = post.dislikes + 1
 
-    return render_template('new_blog.html',uname=uname, user = user, BlogForm = form)
-
-@main.route('/comments/<blog_id>')
-@login_required
-def comments(blog_id):
-    blog = Blog.query.filter_by(id = blog_id).first()
-    comments = Comment.query.filter_by(blog_id = blog.id).order_by(Comment.posted.desc())
-
-
-    return render_template('comments.html', blog = blog, comments = comments)
-
-
-
-@main.route('/blog/comment/new/<blog_id>', methods = ['GET', 'POST'])
-@login_required
-def new_comment(blog_id):
-    form = CommentForm()
-    blog = Blog.query.filter_by(id = blog_id).first()
-    comment = Comment()
-
-    if form.validate_on_submit():
-        
-        comment.comment = form.comment.data
-        comment.blog_id = blog_id
-        comment.user_id = current_user.id
-
-        db.session.add(comment)
+        db.session.add(post)
         db.session.commit()
 
-        return redirect(url_for('main.comments', blog_id=blog.id ))
+        return redirect("/post/{post_id}".format(post_id=post.id))
 
-    return render_template('new_comment.html', comment_form = form)
+    comment_form = CommentForm()
+    if comment_form.validate_on_submit():
+        comment = comment_form.text.data
 
+        new_comment = Comment(comment = comment,user = current_user,post_id = post)
+
+        new_comment.save_comment()
+
+
+    comments = Comment.get_comments(post)
+
+    return render_template("post.html", post = post, comment_form = comment_form, comments = comments, date = posted_date)
+
+@main.route('/user/<uname>/posts')
+def user_posts(uname):
+    user = User.query.filter_by(username=uname).first()
+    posts = Post.query.filter_by(user_id = user.id).all()
+    posts_count = Post.count_posts(uname)
+    user_joined = user.date_joined.strftime('%b %d, %Y')
+
+    return render_template("profile/posts.html", user=user,posts=posts,posts_count=posts_count,date = user_joined)
